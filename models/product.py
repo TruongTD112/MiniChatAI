@@ -2,12 +2,10 @@
 Model cho bảng Product
 """
 from sqlalchemy import Column, Integer, String, Text, DECIMAL, TIMESTAMP, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql import func
 from datetime import datetime
 import json
-
-Base = declarative_base()
+from models.base import Base
 
 
 class Product(Base):
@@ -23,7 +21,7 @@ class Product(Base):
     detail_image_url = Column(Text)  # List ảnh ngăn cách bởi dấu phẩy
     quantity_avail = Column(Integer, default=0)
     status = Column(String(50), default='1')  # 1-available, 2-sold_out, 3-no_longer_sell
-    metadata = Column(Text)  # JSON string
+    meta_data = Column('metadata', Text)  # JSON string - đổi tên attribute để tránh conflict với SQLAlchemy metadata
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP, server_default=func.now(), onupdate=func.now())
 
@@ -39,7 +37,7 @@ class Product(Base):
             'detail_image_url': self.detail_image_url,
             'quantity_avail': self.quantity_avail,
             'status': self.status,
-            'metadata': json.loads(self.metadata) if self.metadata else None,
+            'metadata': json.loads(self.meta_data) if self.meta_data else None,
             'created_at': self.created_at.isoformat() if self.created_at else None,
             'updated_at': self.updated_at.isoformat() if self.updated_at else None
         }
@@ -57,9 +55,9 @@ class Product(Base):
         if self.description:
             text_parts.append(f"Mô tả: {self.description}")
         
-        if self.metadata:
+        if self.meta_data:
             try:
-                metadata_dict = json.loads(self.metadata)
+                metadata_dict = json.loads(self.meta_data)
                 # Thêm các thuộc tính từ metadata vào text
                 for key, value in metadata_dict.items():
                     if isinstance(value, (str, int, float)):
