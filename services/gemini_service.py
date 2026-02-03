@@ -306,4 +306,74 @@ class GeminiService:
                 "Bạn vui lòng liên hệ số 0985006914 để được hỗ trợ nhanh hơn nhé ạ."
             )
 
+    def generate_chat_response(
+        self,
+        message: str,
+        conversations: List[Dict],
+        instruction: str = "",
+        product_context: str = ""
+    ) -> str:
+        """
+        Tạo phản hồi chat với instruction tùy chỉnh, product context và lịch sử chat
+        
+        Args:
+            message: Tin nhắn hiện tại của người dùng
+            conversations: Danh sách các tin nhắn trước đó (tối đa 20 tin nhắn gần nhất)
+            instruction: Instruction/prompt tùy chỉnh cho chatbot
+            product_context: Context về sản phẩm
+            
+        Returns:
+            str: Phản hồi từ bot
+        """
+        try:
+            # Lấy 20 tin nhắn gần nhất
+            recent_conversations = conversations[-20:] if len(conversations) > 20 else conversations
+            
+            # Xây dựng lịch sử chat
+            conversation_history = ""
+            if recent_conversations:
+                conversation_history = "\n".join([
+                    f"{msg.get('role', 'user')}: {msg.get('content', '')}"
+                    for msg in recent_conversations
+                ])
+            else:
+                conversation_history = "Đây là tin nhắn đầu tiên trong cuộc trò chuyện."
+            
+            # Xây dựng prompt
+            prompt_parts = []
+            
+            if instruction:
+                prompt_parts.append(f"INSTRUCTION (Hướng dẫn cho chatbot):\n{instruction}\n")
+            
+            if product_context:
+                prompt_parts.append(f"CONTEXT SẢN PHẨM:\n{product_context}\n")
+            
+            prompt_parts.append(f"LỊCH SỬ TRÒ CHUYỆN (20 tin nhắn gần nhất):\n{conversation_history}\n")
+            prompt_parts.append(f"TIN NHẮN HIỆN TẠI CỦA NGƯỜI DÙNG: {message}\n")
+            prompt_parts.append("Hãy trả lời một cách tự nhiên, thân thiện và hữu ích dựa trên instruction, context sản phẩm và lịch sử trò chuyện.")
+            
+            prompt = "\n".join(prompt_parts)
+            
+            # Đo thời gian gọi LLM
+            start_time = time.perf_counter()
+            response = self.model.generate_content(
+                prompt,
+                generation_config={
+                    "temperature": 0.7
+                }
+            )
+            elapsed_time = time.perf_counter() - start_time
+            
+            reply = response.text.strip()
+            
+            logger.info(
+                f"[LLM] Generate chat response - Thời gian xử lý: {elapsed_time:.3f}s"
+            )
+            
+            return reply
+            
+        except Exception as e:
+            logger.error(f"Lỗi khi tạo phản hồi chat: {str(e)}")
+            return "Xin lỗi, tôi gặp sự cố kỹ thuật. Vui lòng thử lại sau."
+
 

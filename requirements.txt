@@ -11,4 +11,5 @@ python-dotenv==1.0.0
 requests==2.31.0
 Pillow==10.1.0
 protobuf>=4.21.0
+gradio>=4.0.0
 

@@ -30,3 +30,4 @@ class ChatResponse(BaseModel):
     confidence: Optional[float] = Field(None, description="Độ tin cậy của phân loại intent")
 
 
+
