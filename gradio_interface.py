@@ -2,13 +2,16 @@
 Giao diện Gradio cho Chatbot
 """
 import gradio as gr
-from typing import List, Tuple
+from typing import List, Tuple, Dict
 from services.gemini_service import GeminiService
 import logging
 
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Gradio Chatbot cần mỗi message là dict với 'role' và 'content'
+ChatMessage = Dict[str, str]
 
 # Khởi tạo Gemini service
 try:
@@ -19,62 +22,75 @@ except Exception as e:
     gemini_service = None
 
 
+def _normalize_history(history: List) -> List[ChatMessage]:
+    """Chuẩn hóa history: chấp nhận list tuple (user, bot) hoặc list dict (role, content)."""
+    if not history:
+        return []
+    out = []
+    for m in history:
+        if isinstance(m, dict) and "role" in m and "content" in m:
+            out.append({"role": m["role"], "content": m.get("content", "")})
+        elif isinstance(m, (list, tuple)) and len(m) >= 2:
+            out.append({"role": "user", "content": str(m[0])})
+            out.append({"role": "assistant", "content": str(m[1])})
+    return out
+
+
+def _history_to_conversations(history: List[ChatMessage]) -> List[Dict[str, str]]:
+    """Chuyển history (list dict role/content) sang format cho GeminiService."""
+    return [{"role": m["role"], "content": m.get("content", "")} for m in history]
+
+
 def chat_response(
     message: str,
-    history: List[Tuple[str, str]],
+    history: List[ChatMessage],
     instruction: str,
     product_context: str
-) -> Tuple[List[Tuple[str, str]], str]:
+) -> Tuple[List[ChatMessage], str]:
     """
-    Xử lý tin nhắn và trả về phản hồi từ chatbot
-    
-    Args:
-        message: Tin nhắn hiện tại của người dùng
-        history: Lịch sử chat (list of tuples: [(user_msg, bot_msg), ...])
-        instruction: Instruction/prompt cho chatbot
-        product_context: Context về sản phẩm
-        
-    Returns:
-        Tuple: (updated_history, empty_string)
+    Xử lý tin nhắn và trả về phản hồi từ chatbot.
+    History và output dùng format Gradio: mỗi message là dict với 'role' và 'content'.
     """
     if not message or not message.strip():
         return history, ""
-    
+
+    # Chuẩn hóa history (Gradio có thể gửi list tuple hoặc list dict)
+    history = _normalize_history(history) if history else []
+
     if gemini_service is None:
         error_msg = "Lỗi: Gemini service chưa được khởi tạo. Vui lòng kiểm tra GEMINI_API_KEY."
-        history.append((message, error_msg))
-        return history, ""
-    
+        new_history = history + [
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": error_msg},
+        ]
+        return new_history, ""
+
     try:
-        # Chuyển đổi history từ Gradio format sang format cho GeminiService
-        # Gradio history: [(user_msg, bot_msg), ...]
-        # GeminiService format: [{'role': 'user', 'content': '...'}, {'role': 'assistant', 'content': '...'}, ...]
-        conversations = []
-        for user_msg, bot_msg in history:
-            conversations.append({'role': 'user', 'content': user_msg})
-            conversations.append({'role': 'assistant', 'content': bot_msg})
-        
-        # Thêm tin nhắn hiện tại vào conversations
-        conversations.append({'role': 'user', 'content': message})
-        
-        # Gọi Gemini service để tạo phản hồi
+        # Conversations cho Gemini: history + tin nhắn hiện tại
+        conversations = _history_to_conversations(history)
+        conversations.append({"role": "user", "content": message})
+
         response = gemini_service.generate_chat_response(
             message=message,
             conversations=conversations,
             instruction=instruction,
-            product_context=product_context
+            product_context=product_context,
         )
-        
-        # Thêm vào history
-        history.append((message, response))
-        
-        return history, ""
-        
+
+        new_history = history + [
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": response},
+        ]
+        return new_history, ""
+
     except Exception as e:
         logger.error(f"Lỗi khi xử lý chat: {str(e)}")
         error_msg = f"Xin lỗi, đã xảy ra lỗi: {str(e)}"
-        history.append((message, error_msg))
-        return history, ""
+        new_history = history + [
+            {"role": "user", "content": message},
+            {"role": "assistant", "content": error_msg},
+        ]
+        return new_history, ""
 
 
 def clear_chat():
@@ -158,8 +174,7 @@ with gr.Blocks(title="Chatbot với Gemini", theme=gr.themes.Soft()) as demo:
             
             chatbot = gr.Chatbot(
                 label="Cuộc trò chuyện",
-                height=500,
-                show_copy_button=True
+                height=500
             )
             
             msg_input = gr.Textbox(

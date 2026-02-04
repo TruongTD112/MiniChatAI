@@ -4,27 +4,51 @@ Service để gọi Gemini LLM API
 import os
 import time
 import logging
-from typing import Optional, List, Dict
+import hashlib
+from typing import Optional, List, Dict, Tuple
 import google.generativeai as genai
 from config import Config
 
 logger = logging.getLogger(__name__)
 
+# SDK mới (google-genai) dùng cho prompt caching
+try:
+    from google import genai as genai_new
+    from google.genai import types as genai_types
+    _GENAI_NEW_AVAILABLE = True
+except ImportError:
+    _GENAI_NEW_AVAILABLE = False
+
 
 class GeminiService:
     """Service để tương tác với Gemini LLM"""
-    
+
+    CACHE_TTL_SECONDS = 3600  # TTL cache mặc định (1 giờ)
+
     def __init__(self):
         """Khởi tạo Gemini client"""
-        # Lấy API key từ config
         api_key = Config.GEMINI_API_KEY
         if not api_key:
             raise ValueError("GEMINI_API_KEY không được tìm thấy trong environment variables")
-        
+
         genai.configure(api_key=api_key)
-        # Có thể đổi model: 'gemini-pro', 'gemini-1.5-pro', 'gemini-1.5-flash'
         model_name = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
         self.model = genai.GenerativeModel(model_name)
+        self._model_name = model_name
+        self._model_name_for_cache = f"models/{model_name}" if not model_name.startswith("models/") else model_name
+
+        self._genai_client: Optional[object] = None
+        self._chat_cache: Dict[str, Tuple[str, float]] = {}  # cache_key -> (cache_name, expire_time)
+
+        if _GENAI_NEW_AVAILABLE:
+            try:
+                self._genai_client = genai_new.Client(api_key=api_key)
+                logger.info("Đã bật prompt caching (instruction + product context) với google-genai")
+            except Exception as e:
+                logger.warning("Không khởi tạo được client caching: %s. Chat sẽ không dùng cache.", e)
+        else:
+            logger.info("Chưa cài google-genai; chat không dùng prompt caching. Cài: pip install google-genai")
+
         logger.info(f"Đã khởi tạo Gemini client với model: {model_name}")
     
     # def classify_intent(
@@ -143,6 +167,8 @@ class GeminiService:
                 
                     No markdown. No explanation.
                     """
+
+            logger.info("[LLM][Intent] Input gửi sang Gemini:\n%s", prompt)
 
             start_time = time.perf_counter()
 
@@ -273,6 +299,8 @@ class GeminiService:
             - Lịch sự
             """
 
+            logger.info("[LLM][Generate] Input gửi sang Gemini:\n%s", prompt)
+
             start_time = time.perf_counter()
 
             response = self.model.generate_content(
@@ -306,6 +334,46 @@ class GeminiService:
                 "Bạn vui lòng liên hệ số 0985006914 để được hỗ trợ nhanh hơn nhé ạ."
             )
 
+    def _get_or_create_chat_cache(self, instruction: str, product_context: str) -> Optional[str]:
+        """
+        Lấy hoặc tạo cache cho instruction + product_context (prompt caching).
+        Trả về cache.name để dùng với GenerateContentConfig(cached_content=...).
+        """
+        if not self._genai_client or not _GENAI_NEW_AVAILABLE:
+            return None
+        cache_key = hashlib.sha256((instruction or "").encode() + (product_context or "").encode()).hexdigest()
+        now = time.time()
+        if cache_key in self._chat_cache:
+            cache_name, expire_time = self._chat_cache[cache_key]
+            if now < expire_time:
+                logger.info("[LLM][Cache] Đang dùng cache có sẵn (instruction + product context), key=%s...", cache_key[:16])
+                return cache_name
+            # Cache hết hạn, xóa để tạo mới
+            del self._chat_cache[cache_key]
+        # Tạo cache mới
+        cached_text = ""
+        if instruction:
+            cached_text += f"INSTRUCTION (Hướng dẫn cho chatbot):\n{instruction}\n\n"
+        if product_context:
+            cached_text += f"CONTEXT SẢN PHẨM:\n{product_context}\n\n"
+        if not cached_text.strip():
+            return None
+        try:
+            cache = self._genai_client.caches.create(
+                model=self._model_name_for_cache,
+                config=genai_types.CreateCachedContentConfig(
+                    system_instruction=cached_text.strip(),
+                    ttl=f"{self.CACHE_TTL_SECONDS}s",
+                ),
+            )
+            expire_time = now + self.CACHE_TTL_SECONDS
+            self._chat_cache[cache_key] = (cache.name, expire_time)
+            logger.info("[LLM][Cache] Đã tạo cache mới cho instruction + product context (TTL=%ss), key=%s...", self.CACHE_TTL_SECONDS, cache_key[:16])
+            return cache.name
+        except Exception as e:
+            logger.warning("Không tạo được cache: %s. Gửi full prompt.", e)
+            return None
+
     def generate_chat_response(
         self,
         message: str,
@@ -314,22 +382,11 @@ class GeminiService:
         product_context: str = ""
     ) -> str:
         """
-        Tạo phản hồi chat với instruction tùy chỉnh, product context và lịch sử chat
-        
-        Args:
-            message: Tin nhắn hiện tại của người dùng
-            conversations: Danh sách các tin nhắn trước đó (tối đa 20 tin nhắn gần nhất)
-            instruction: Instruction/prompt tùy chỉnh cho chatbot
-            product_context: Context về sản phẩm
-            
-        Returns:
-            str: Phản hồi từ bot
+        Tạo phản hồi chat với instruction tùy chỉnh, product context và lịch sử chat.
+        Dùng prompt caching (instruction + product_context) khi có google-genai.
         """
         try:
-            # Lấy 20 tin nhắn gần nhất
             recent_conversations = conversations[-20:] if len(conversations) > 20 else conversations
-            
-            # Xây dựng lịch sử chat
             conversation_history = ""
             if recent_conversations:
                 conversation_history = "\n".join([
@@ -338,42 +395,55 @@ class GeminiService:
                 ])
             else:
                 conversation_history = "Đây là tin nhắn đầu tiên trong cuộc trò chuyện."
-            
-            # Xây dựng prompt
+
+            # Thử dùng prompt caching (instruction + product_context đã cache)
+            cache_name = self._get_or_create_chat_cache(instruction, product_context)
+            if cache_name and self._genai_client and _GENAI_NEW_AVAILABLE:
+                logger.info("[LLM] Đang dùng prompt cache (instruction + product context) — chỉ gửi lịch sử + tin nhắn")
+                dynamic_prompt = (
+                    f"LỊCH SỬ TRÒ CHUYỆN (20 tin nhắn gần nhất):\n{conversation_history}\n\n"
+                    f"TIN NHẮN HIỆN TẠI CỦA NGƯỜI DÙNG: {message}\n\n"
+                    "Hãy trả lời một cách tự nhiên, thân thiện và hữu ích dựa trên instruction, context sản phẩm và lịch sử trò chuyện."
+                )
+                logger.info("[LLM][Chat] Input gửi sang Gemini (dùng cache):\n%s", dynamic_prompt)
+                start_time = time.perf_counter()
+                response = self._genai_client.models.generate_content(
+                    model=self._model_name_for_cache,
+                    contents=dynamic_prompt,
+                    config=genai_types.GenerateContentConfig(
+                        cached_content=cache_name,
+                        temperature=0.7,
+                    ),
+                )
+                elapsed_time = time.perf_counter() - start_time
+                reply = (response.text or "").strip()
+                logger.info("[LLM] Generate chat response (đã dùng cache) - Thời gian xử lý: %.3fs", elapsed_time)
+                return reply
+
+            # Fallback: không cache, gửi full prompt (SDK cũ)
+            logger.info("[LLM] Chạy bình thường (không dùng cache) — gửi full prompt (instruction + product context + lịch sử + tin nhắn)")
             prompt_parts = []
-            
             if instruction:
                 prompt_parts.append(f"INSTRUCTION (Hướng dẫn cho chatbot):\n{instruction}\n")
-            
             if product_context:
                 prompt_parts.append(f"CONTEXT SẢN PHẨM:\n{product_context}\n")
-            
             prompt_parts.append(f"LỊCH SỬ TRÒ CHUYỆN (20 tin nhắn gần nhất):\n{conversation_history}\n")
             prompt_parts.append(f"TIN NHẮN HIỆN TẠI CỦA NGƯỜI DÙNG: {message}\n")
             prompt_parts.append("Hãy trả lời một cách tự nhiên, thân thiện và hữu ích dựa trên instruction, context sản phẩm và lịch sử trò chuyện.")
-            
             prompt = "\n".join(prompt_parts)
-            
-            # Đo thời gian gọi LLM
+            logger.info("[LLM][Chat] Input gửi sang Gemini:\n%s", prompt)
             start_time = time.perf_counter()
             response = self.model.generate_content(
                 prompt,
-                generation_config={
-                    "temperature": 0.7
-                }
+                generation_config={"temperature": 0.7},
             )
             elapsed_time = time.perf_counter() - start_time
-            
             reply = response.text.strip()
-            
-            logger.info(
-                f"[LLM] Generate chat response - Thời gian xử lý: {elapsed_time:.3f}s"
-            )
-            
+            logger.info("[LLM] Generate chat response (bình thường, không cache) - Thời gian xử lý: %.3fs", elapsed_time)
             return reply
-            
+
         except Exception as e:
-            logger.error(f"Lỗi khi tạo phản hồi chat: {str(e)}")
+            logger.error("Lỗi khi tạo phản hồi chat: %s", e)
             return "Xin lỗi, tôi gặp sự cố kỹ thuật. Vui lòng thử lại sau."
 
 
