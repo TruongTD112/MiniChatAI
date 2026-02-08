@@ -7,7 +7,7 @@ from fastapi.exceptions import RequestValidationError
 import logging
 
 from config import Config
-from api.routes import product_vector
+from api.routes import product_vector, chat
 from middleware.exception_handler import (
     validation_exception_handler,
     general_exception_handler
@@ -50,6 +50,7 @@ app.add_exception_handler(Exception, general_exception_handler)
 
 # Đăng ký routers
 app.include_router(product_vector.router)
+app.include_router(chat.router)
 
 
 @app.get("/")

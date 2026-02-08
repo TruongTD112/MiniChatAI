@@ -1,6 +1,7 @@
 """
 Service để tương tác với Pinecone Vector Database
 """
+import time
 from pinecone import Pinecone, ServerlessSpec
 from typing import List, Dict, Any, Optional
 import logging
@@ -112,7 +113,8 @@ class PineconeService:
             # Chuẩn bị filter nếu có
             pinecone_filter = self._prepare_filter(filter) if filter else None
             
-            # Search
+            # Đo thời gian truy vấn vector database
+            start_time = time.perf_counter()
             results = index.query(
                 vector=query_vector,
                 top_k=top_k,
@@ -120,6 +122,7 @@ class PineconeService:
                 include_metadata=True,
                 filter=pinecone_filter
             )
+            elapsed_time = time.perf_counter() - start_time
             
             # Format kết quả
             formatted_results = []
@@ -129,6 +132,12 @@ class PineconeService:
                     'score': match.score,
                     'metadata': match.metadata or {}
                 })
+            
+            logger.info(
+                f"[Vector DB] Tìm kiếm trong namespace '{namespace}' - "
+                f"Tìm thấy {len(formatted_results)} kết quả - "
+                f"Thời gian xử lý: {elapsed_time:.3f}s"
+            )
             
             return formatted_results
         except Exception as e:
@@ -153,6 +162,68 @@ class PineconeService:
             return True
         except Exception as e:
             logger.error(f"Lỗi khi xóa vector: {str(e)}")
+            raise
+    
+    def delete_vectors(self, vector_ids: List[str], namespace: str) -> bool:
+        """
+        Xóa nhiều vectors khỏi Pinecone
+        
+        Args:
+            vector_ids: List các ID của vectors cần xóa
+            namespace: Namespace trong Pinecone
+        
+        Returns:
+            bool: True nếu thành công
+        """
+        try:
+            if not vector_ids:
+                return True
+            
+            index = self.get_index()
+            index.delete(ids=[str(vid) for vid in vector_ids], namespace=namespace)
+            logger.info(f"Đã xóa {len(vector_ids)} vectors từ namespace {namespace}")
+            return True
+        except Exception as e:
+            logger.error(f"Lỗi khi xóa vectors: {str(e)}")
+            raise
+    
+    def upsert_vectors_batch(
+        self,
+        vectors: List[Dict[str, Any]],
+        namespace: str
+    ) -> bool:
+        """
+        Lưu hoặc cập nhật nhiều vectors vào Pinecone cùng lúc
+        
+        Args:
+            vectors: List các dict với keys: 'id', 'values', 'metadata'
+            namespace: Namespace trong Pinecone
+        
+        Returns:
+            bool: True nếu thành công
+        """
+        try:
+            if not vectors:
+                return True
+            
+            index = self.get_index()
+            
+            # Chuẩn bị vectors cho Pinecone
+            pinecone_vectors = []
+            for vec in vectors:
+                pinecone_metadata = self._prepare_metadata(vec.get('metadata', {}))
+                pinecone_vectors.append({
+                    'id': str(vec['id']),
+                    'values': vec['values'],
+                    'metadata': pinecone_metadata
+                })
+            
+            # Upsert batch
+            index.upsert(vectors=pinecone_vectors, namespace=namespace)
+            logger.info(f"Đã upsert {len(pinecone_vectors)} vectors vào namespace {namespace}")
+            return True
+        except Exception as e:
+            logger.error(f"Lỗi khi upsert vectors batch: {str(e)}")
             raise
     
     def delete_all_vectors(self, namespace: str) -> bool:
@@ -203,17 +274,28 @@ class PineconeService:
     def _prepare_filter(self, filter_dict: Dict[str, Any]) -> Dict[str, Any]:
         """
         Chuẩn bị filter cho Pinecone query
-        Pinecone hỗ trợ filter với các toán tử: $eq, $ne, $gt, $gte, $lt, $lte, $in, $nin
+        Pinecone hỗ trợ filter với các toán tử: $eq, $ne, $gt, $gte, $lt, $lte, $in, $nin, $and, $or
+        
+        Hỗ trợ các format:
+        - {"status": "1"} -> {"status": {"$eq": "1"}}
+        - {"price": {"$gte": 100, "$lte": 500}} -> giữ nguyên
+        - {"category": ["quần áo", "giày dép"]} -> {"category": {"$in": ["quần áo", "giày dép"]}}
         """
-        # Nếu filter đơn giản, convert sang format Pinecone
         pinecone_filter = {}
+        
         for key, value in filter_dict.items():
-            if isinstance(value, (str, int, float, bool)):
-                pinecone_filter[key] = {"$eq": value}
+            # Nếu value đã là dict với toán tử Pinecone ($eq, $gte, etc.), giữ nguyên
+            if isinstance(value, dict) and any(op.startswith('$') for op in value.keys()):
+                pinecone_filter[key] = value
+            # Nếu là list, dùng $in
             elif isinstance(value, list):
                 pinecone_filter[key] = {"$in": value}
+            # Nếu là primitive type, dùng $eq
+            elif isinstance(value, (str, int, float, bool)):
+                pinecone_filter[key] = {"$eq": value}
             else:
-                pinecone_filter[key] = value
+                # Fallback: convert sang string và dùng $eq
+                pinecone_filter[key] = {"$eq": str(value)}
         
         return pinecone_filter
 

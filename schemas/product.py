@@ -1,7 +1,8 @@
 """
 Schema Pydantic cho Product API
 """
-from pydantic import BaseModel, Field
+from __future__ import annotations
+from pydantic import BaseModel, Field, model_validator
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
@@ -91,10 +92,24 @@ class BatchUpsertData(BaseModel):
 
 class ProductSearchRequest(BaseModel):
     """Schema để search product bằng vector"""
-    query_text: str = Field(..., description="Text query để tìm kiếm")
+    query_text: Optional[str] = Field(None, description="Text query để tìm kiếm")
+    query_image_url: Optional[str] = Field(None, description="Image URL để tìm kiếm")
     namespace: str = Field(..., description="Namespace trong Pinecone để search")
     top_k: int = Field(default=10, ge=1, le=100, description="Số lượng kết quả trả về")
-    filter: Optional[Dict[str, Any]] = Field(None, description="Filter metadata trong Pinecone")
+    filter: Optional[Dict[str, Any]] = Field(
+        None, 
+        description="Filter metadata trong Pinecone. "
+        "Ví dụ: {'status': '1', 'business_id': 200, 'price': {'$gte': 100000, '$lte': 500000}}"
+    )
+    search_type: str = Field(default="both", description="Loại search: 'text', 'image', hoặc 'both' (mặc định: both)")
+    
+    @model_validator(mode='after')
+    def validate_query(self):
+        """Validate rằng phải có ít nhất query_text hoặc query_image_url"""
+        if not self.query_text and not self.query_image_url:
+            raise ValueError("Phải có ít nhất query_text hoặc query_image_url")
+        
+        return self
 
 
 class ProductSearchResult(BaseModel):

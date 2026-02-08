@@ -11,23 +11,36 @@ load_dotenv()
 class Config:
     """Class chứa các cấu hình của ứng dụng"""
     
-    # Database
-    DATABASE_URL = os.getenv(
-        'DATABASE_URL',
-        'mysql+pymysql://user:password@localhost:3306/dbname'
-    )
+    # Database MySQL
+    MYSQL_HOST = os.getenv('MYSQL_HOST')
+    MYSQL_PORT = os.getenv('MYSQL_PORT')
+    MYSQL_DATABASE = os.getenv('MYSQL_DATABASE')
+    MYSQL_USERNAME = os.getenv('MYSQL_USERNAME')
+    MYSQL_PASSWORD = os.getenv('MYSQL_PASSWORD')
+    
+    # Database URL (có thể set trực tiếp hoặc tự động tạo từ các biến trên)
+    _db_url = os.getenv('DATABASE_URL')
+    if not _db_url and all([MYSQL_HOST, MYSQL_PORT, MYSQL_DATABASE, MYSQL_USERNAME, MYSQL_PASSWORD]):
+        _db_url = f'mysql+pymysql://{MYSQL_USERNAME}:{MYSQL_PASSWORD}@{MYSQL_HOST}:{MYSQL_PORT}/{MYSQL_DATABASE}'
+    DATABASE_URL = _db_url
     
     # Pinecone
     PINECONE_API_KEY = os.getenv('PINECONE_API_KEY')
     PINECONE_INDEX_NAME = os.getenv('PINECONE_INDEX_NAME', 'products')
-    PINECONE_DIMENSION = int(os.getenv('PINECONE_DIMENSION', '1536'))
+    PINECONE_DIMENSION = int(os.getenv('PINECONE_DIMENSION', '1408'))
     PINECONE_CLOUD = os.getenv('PINECONE_CLOUD', 'aws')
     PINECONE_REGION = os.getenv('PINECONE_REGION', 'us-east-1')
     
-    # OpenAI
-    OPENAI_API_KEY = os.getenv('OPENAI_API_KEY')
-    EMBEDDING_MODEL = os.getenv('EMBEDDING_MODEL', 'text-embedding-3-small')
-    EMBEDDING_DIMENSION = int(os.getenv('EMBEDDING_DIMENSION', '1536'))
+    # Google Vertex AI (cho embedding)
+    # Mặc định tìm file vertexAI.json trong thư mục services/
+    _default_credentials = os.path.join(os.path.dirname(__file__), 'services', 'vertexAI.json')
+    GOOGLE_APPLICATION_CREDENTIALS = os.getenv('GOOGLE_APPLICATION_CREDENTIALS', _default_credentials)
+    GOOGLE_PROJECT_ID = os.getenv('GOOGLE_PROJECT_ID')
+    GOOGLE_LOCATION = os.getenv('GOOGLE_LOCATION', 'us-central1')
+    EMBEDDING_DIMENSION = int(os.getenv('EMBEDDING_DIMENSION', '1408'))
+    
+    # Gemini LLM
+    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
     
     @classmethod
     def validate(cls):
@@ -37,8 +50,11 @@ class Config:
         if not cls.PINECONE_API_KEY:
             errors.append("PINECONE_API_KEY không được tìm thấy")
         
-        if not cls.OPENAI_API_KEY:
-            errors.append("OPENAI_API_KEY không được tìm thấy")
+        if not cls.GOOGLE_APPLICATION_CREDENTIALS:
+            errors.append("GOOGLE_APPLICATION_CREDENTIALS không được tìm thấy")
+        
+        if not cls.GOOGLE_PROJECT_ID:
+            errors.append("GOOGLE_PROJECT_ID không được tìm thấy")
         
         if cls.PINECONE_DIMENSION != cls.EMBEDDING_DIMENSION:
             errors.append(
