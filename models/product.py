@@ -10,7 +10,7 @@ from models.base import Base
 
 class Product(Base):
     """Model đại diện cho bảng product"""
-    __tablename__ = 'product'
+    __tablename__ = 'Product'
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     business_id = Column(Integer, ForeignKey('business.id'), nullable=False)
