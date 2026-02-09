@@ -108,7 +108,7 @@ with gr.Blocks(title="Chatbot với Gemini", theme=gr.themes.Soft()) as demo:
         Bot sẽ sử dụng:
         - **Instruction** (hướng dẫn) do bạn cung cấp
         - **Context sản phẩm** để hiểu về sản phẩm
-        - **20 tin nhắn gần nhất** làm context cho cuộc trò chuyện
+        - **6 tin nhắn gần nhất** làm context cho cuộc trò chuyện
         """
     )
     
@@ -222,11 +222,11 @@ with gr.Blocks(title="Chatbot với Gemini", theme=gr.themes.Soft()) as demo:
         2. **Chat (Bên phải):**
            - Nhập câu hỏi vào ô "Nhập tin nhắn"
            - Nhấn **Enter** hoặc nút **"📤 Gửi"** để gửi
-           - Bot sẽ tự động sử dụng: Instruction + Context sản phẩm + 20 tin nhắn gần nhất
+           - Bot sẽ tự động sử dụng: Instruction + Context sản phẩm + 6 tin nhắn gần nhất
         
         3. **Lưu ý:**
            - Bạn có thể thay đổi Instruction và Context sản phẩm bất cứ lúc nào
-           - Bot sẽ tự động lấy 20 tin nhắn gần nhất làm context
+           - Bot sẽ tự động lấy 6 tin nhắn gần nhất làm context
            - Nhấn "🗑️ Xóa lịch sử chat" để bắt đầu cuộc trò chuyện mới
         """
     )

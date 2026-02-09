@@ -11,6 +11,27 @@ from config import Config
 
 logger = logging.getLogger(__name__)
 
+
+def _log_usage(response, label: str = "LLM") -> None:
+    """Log số token input/output/total cho mỗi lần gọi (hỗ trợ cả SDK cũ và mới)."""
+    usage = getattr(response, "usage_metadata", None)
+    if usage is None:
+        return
+    prompt_tokens = getattr(usage, "prompt_token_count", None)
+    cached_content_prompt_tokens = getattr(usage, "cached_content_token_count", None)
+    output_tokens = getattr(usage, "candidates_token_count", None) or getattr(usage, "output_token_count", None)
+    total = getattr(usage, "total_token_count", None)
+    if prompt_tokens is not None or output_tokens is not None or total is not None:
+        logger.info(
+            "[%s] Token usage | input=%s | cached=%s |output=%s | total=%s",
+            label,
+            prompt_tokens if prompt_tokens is not None else "?",
+            cached_content_prompt_tokens if cached_content_prompt_tokens is not None else "?",
+            output_tokens if output_tokens is not None else "?",
+            total if total is not None else "?",
+        )
+
+
 # SDK mới (google-genai) dùng cho prompt caching
 try:
     from google import genai as genai_new
@@ -178,6 +199,7 @@ class GeminiService:
                     "temperature": 0
                 }
             )
+            _log_usage(response, "LLM][Intent")
 
             elapsed = time.perf_counter() - start_time
             text = response.text.strip()
@@ -309,6 +331,7 @@ class GeminiService:
                     "temperature": 0
                 }
             )
+            _log_usage(response, "LLM][Generate")
 
             elapsed_time = time.perf_counter() - start_time
             reply = response.text.strip()
@@ -386,7 +409,7 @@ class GeminiService:
         Dùng prompt caching (instruction + product_context) khi có google-genai.
         """
         try:
-            recent_conversations = conversations[-20:] if len(conversations) > 20 else conversations
+            recent_conversations = conversations[-6:] if len(conversations) > 6 else conversations
             conversation_history = ""
             if recent_conversations:
                 conversation_history = "\n".join([
@@ -401,7 +424,7 @@ class GeminiService:
             if cache_name and self._genai_client and _GENAI_NEW_AVAILABLE:
                 logger.info("[LLM] Đang dùng prompt cache (instruction + product context) — chỉ gửi lịch sử + tin nhắn")
                 dynamic_prompt = (
-                    f"LỊCH SỬ TRÒ CHUYỆN (20 tin nhắn gần nhất):\n{conversation_history}\n\n"
+                    f"LỊCH SỬ TRÒ CHUYỆN (6 tin gần nhất):\n{conversation_history}\n\n"
                     f"TIN NHẮN HIỆN TẠI CỦA NGƯỜI DÙNG: {message}\n\n"
                     "Hãy trả lời một cách tự nhiên, thân thiện và hữu ích dựa trên instruction, context sản phẩm và lịch sử trò chuyện."
                 )
@@ -412,9 +435,10 @@ class GeminiService:
                     contents=dynamic_prompt,
                     config=genai_types.GenerateContentConfig(
                         cached_content=cache_name,
-                        temperature=0.7,
+                        temperature=0.1,
                     ),
                 )
+                _log_usage(response, "LLM][Chat-cache")
                 elapsed_time = time.perf_counter() - start_time
                 reply = (response.text or "").strip()
                 logger.info("[LLM] Generate chat response (đã dùng cache) - Thời gian xử lý: %.3fs", elapsed_time)
@@ -427,7 +451,7 @@ class GeminiService:
                 prompt_parts.append(f"INSTRUCTION (Hướng dẫn cho chatbot):\n{instruction}\n")
             if product_context:
                 prompt_parts.append(f"CONTEXT SẢN PHẨM:\n{product_context}\n")
-            prompt_parts.append(f"LỊCH SỬ TRÒ CHUYỆN (20 tin nhắn gần nhất):\n{conversation_history}\n")
+            prompt_parts.append(f"LỊCH SỬ TRÒ CHUYỆN (6 tin gần nhất):\n{conversation_history}\n")
             prompt_parts.append(f"TIN NHẮN HIỆN TẠI CỦA NGƯỜI DÙNG: {message}\n")
             prompt_parts.append("Hãy trả lời một cách tự nhiên, thân thiện và hữu ích dựa trên instruction, context sản phẩm và lịch sử trò chuyện.")
             prompt = "\n".join(prompt_parts)
@@ -437,6 +461,7 @@ class GeminiService:
                 prompt,
                 generation_config={"temperature": 0.7},
             )
+            _log_usage(response, "LLM][Chat")
             elapsed_time = time.perf_counter() - start_time
             reply = response.text.strip()
             logger.info("[LLM] Generate chat response (bình thường, không cache) - Thời gian xử lý: %.3fs", elapsed_time)
