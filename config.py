@@ -42,6 +42,9 @@ class Config:
     # Gemini LLM
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
     
+    # Giới hạn tải ảnh (bytes) khi tạo embedding - giảm băng thông
+    MAX_IMAGE_DOWNLOAD_BYTES = int(os.getenv('MAX_IMAGE_DOWNLOAD_BYTES', '2_097_152'))  # mặc định 2MB
+    
     @classmethod
     def validate(cls):
         """Validate các cấu hình bắt buộc"""

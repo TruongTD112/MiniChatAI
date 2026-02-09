@@ -1,7 +1,7 @@
 import os
 import requests
 import base64
-from google.cloud import aiplatform
+import google.cloud.aiplatform as aiplatform
 from google.protobuf import struct_pb2
 from pinecone import Pinecone
 

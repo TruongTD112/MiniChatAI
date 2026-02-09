@@ -4,8 +4,8 @@ Context builder cho intent product_search_image
 from typing import Dict, List
 from sqlalchemy.orm import Session
 from services.context_builders.base import BaseContextBuilder
-from services.embedding_service import EmbeddingService
-from services.pinecone_service import PineconeService
+from services.embedding_service import get_embedding_service
+from services.pinecone_service import get_pinecone_service
 import re
 
 
@@ -14,8 +14,8 @@ class ProductSearchImageContextBuilder(BaseContextBuilder):
     
     def __init__(self, db: Session, business_id: int, customer_id: int):
         super().__init__(db, business_id, customer_id)
-        self.embedding_service = EmbeddingService()
-        self.pinecone_service = PineconeService()
+        self.embedding_service = get_embedding_service()
+        self.pinecone_service = get_pinecone_service()
     
     def extract_image_url(self, message: str) -> str:
         """Trích xuất URL ảnh từ message"""
