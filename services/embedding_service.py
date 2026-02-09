@@ -7,7 +7,7 @@ import os
 import time
 import base64
 import requests
-from google.cloud import aiplatform
+import google.cloud.aiplatform as aiplatform
 from google.protobuf import struct_pb2
 from config import Config
 
@@ -141,10 +141,24 @@ class EmbeddingService:
             if not image_url:
                 return None
             
-            # Download ảnh từ URL và convert sang base64
-            response = requests.get(image_url, timeout=10)
+            # Download ảnh với giới hạn dung lượng để giảm băng thông (tải về)
+            max_bytes = getattr(Config, 'MAX_IMAGE_DOWNLOAD_BYTES', 2_097_152)
+            response = requests.get(image_url, timeout=10, stream=True)
             response.raise_for_status()
-            image_base64 = base64.b64encode(response.content).decode("utf-8")
+            chunks = []
+            total = 0
+            for chunk in response.iter_content(chunk_size=65536):
+                if chunk:
+                    chunks.append(chunk)
+                    total += len(chunk)
+                    if total > max_bytes:
+                        logger.warning(f"Ảnh vượt giới hạn {max_bytes} bytes, dừng tải: {image_url}")
+                        break
+            image_bytes = b"".join(chunks)
+            if not image_bytes:
+                logger.warning(f"Không có dữ liệu ảnh: {image_url}")
+                return None
+            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
             
             # Tạo instance với image
             instance = struct_pb2.Struct()
@@ -191,4 +205,16 @@ class EmbeddingService:
             embedding = self.create_image_embedding(image_url)
             embeddings.append(embedding)
         return embeddings
+
+
+# Lazy singleton: chỉ khởi tạo khi cần, dùng chung 1 instance (giảm RAM trên Railway)
+_embedding_service_instance: Optional[EmbeddingService] = None
+
+
+def get_embedding_service() -> EmbeddingService:
+    """Lấy instance EmbeddingService (lazy init, singleton)."""
+    global _embedding_service_instance
+    if _embedding_service_instance is None:
+        _embedding_service_instance = EmbeddingService()
+    return _embedding_service_instance
 

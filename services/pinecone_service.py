@@ -299,3 +299,15 @@ class PineconeService:
         
         return pinecone_filter
 
+
+# Lazy singleton: chỉ khởi tạo khi cần, dùng chung 1 instance (giảm RAM trên Railway)
+_pinecone_service_instance: Optional[PineconeService] = None
+
+
+def get_pinecone_service() -> PineconeService:
+    """Lấy instance PineconeService (lazy init, singleton)."""
+    global _pinecone_service_instance
+    if _pinecone_service_instance is None:
+        _pinecone_service_instance = PineconeService()
+    return _pinecone_service_instance
+

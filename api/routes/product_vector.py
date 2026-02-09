@@ -17,8 +17,8 @@ from schemas.product import (
     BatchUpsertData
 )
 from schemas.response import SuccessResponse, ErrorResponse
-from services.pinecone_service import PineconeService
-from services.embedding_service import EmbeddingService
+from services.pinecone_service import get_pinecone_service
+from services.embedding_service import get_embedding_service
 from utils.product_helper import (
     create_text_for_embedding, 
     prepare_metadata_for_pinecone,
@@ -26,10 +26,6 @@ from utils.product_helper import (
 )
 
 router = APIRouter(prefix="/api/products/vector", tags=["Product Vector"])
-
-# Khởi tạo services
-pinecone_service = PineconeService()
-embedding_service = EmbeddingService()
 
 
 @router.post("/upsert", status_code=status.HTTP_200_OK)
@@ -59,7 +55,7 @@ async def upsert_product_vector(
         )
         
         # Tạo text embedding vector
-        text_vector = embedding_service.create_embedding(text_for_embedding)
+        text_vector = get_embedding_service().create_embedding(text_for_embedding)
         
         # Chuẩn bị metadata để lưu vào Pinecone
         metadata = prepare_metadata_for_pinecone(
@@ -96,7 +92,7 @@ async def upsert_product_vector(
         if all_image_urls:
             for index, image_url in enumerate(all_image_urls):
                 try:
-                    image_vector = embedding_service.create_image_embedding(image_url)
+                    image_vector = get_embedding_service().create_image_embedding(image_url)
                     if image_vector:
                         # Đặt tên vector: image_0 cho ảnh đầu tiên, image_1 cho ảnh thứ 2, etc.
                         # Nếu là main_image_url (index 0) và có main_image_url, có thể đặt tên đặc biệt
@@ -115,7 +111,7 @@ async def upsert_product_vector(
                     logger.warning(f"Không thể tạo image embedding cho ảnh {index} của product {request.product_id}: {str(img_error)}")
         
         # Upsert tất cả vectors cùng lúc
-        pinecone_service.upsert_vectors_batch(
+        get_pinecone_service().upsert_vectors_batch(
             vectors=vectors_to_upsert,
             namespace=request.namespace
         )
@@ -170,13 +166,13 @@ async def search_products_by_vector(
         # Search theo text nếu có query_text và search_type cho phép
         if request.query_text and search_type in ['text', 'both']:
             try:
-                query_vector = embedding_service.create_embedding(request.query_text)
+                query_vector = get_embedding_service().create_embedding(request.query_text)
                 
                 # Thêm filter để chỉ search text vectors
                 text_filter = {**base_filter}
                 text_filter['vector_type'] = 'text'
                 
-                text_results = pinecone_service.search_vectors(
+                text_results = get_pinecone_service().search_vectors(
                     query_vector=query_vector,
                     namespace=request.namespace,
                     top_k=request.top_k,
@@ -189,13 +185,13 @@ async def search_products_by_vector(
         # Search theo image nếu có query_image_url và search_type cho phép
         if request.query_image_url and search_type in ['image', 'both']:
             try:
-                image_vector = embedding_service.create_image_embedding(request.query_image_url)
+                image_vector = get_embedding_service().create_image_embedding(request.query_image_url)
                 if image_vector:
                     # Thêm filter để chỉ search image vectors
                     image_filter = {**base_filter}
                     image_filter['vector_type'] = 'image'
                     
-                    image_results = pinecone_service.search_vectors(
+                    image_results = get_pinecone_service().search_vectors(
                         query_vector=image_vector,
                         namespace=request.namespace,
                         top_k=request.top_k,
@@ -339,7 +335,7 @@ async def delete_product_vector(
             vector_ids_to_delete.append(f"{product_id}_image_{i}")
         
         # Pinecone sẽ tự động bỏ qua các vector không tồn tại, không gây lỗi
-        pinecone_service.delete_vectors(
+        get_pinecone_service().delete_vectors(
             vector_ids=vector_ids_to_delete,
             namespace=namespace
         )
@@ -391,7 +387,7 @@ async def batch_upsert_product_vectors(
                     description=product_request.description,
                     metadata=product_request.metadata
                 )
-                text_vector = embedding_service.create_embedding(text_for_embedding)
+                text_vector = get_embedding_service().create_embedding(text_for_embedding)
                 
                 # Chuẩn bị metadata
                 metadata = prepare_metadata_for_pinecone(
@@ -429,7 +425,7 @@ async def batch_upsert_product_vectors(
                 if all_image_urls:
                     for index, image_url in enumerate(all_image_urls):
                         try:
-                            image_vector = embedding_service.create_image_embedding(image_url)
+                            image_vector = get_embedding_service().create_image_embedding(image_url)
                             if image_vector:
                                 # Đặt tên vector: image_main cho ảnh đầu tiên nếu là main, hoặc image_0, image_1, etc.
                                 if index == 0 and product_request.main_image_url and image_url == product_request.main_image_url.strip():
@@ -468,7 +464,7 @@ async def batch_upsert_product_vectors(
             # Upsert từng namespace
             for ns, vectors in vectors_by_namespace.items():
                 try:
-                    pinecone_service.upsert_vectors_batch(
+                    get_pinecone_service().upsert_vectors_batch(
                         vectors=vectors,
                         namespace=ns
                     )

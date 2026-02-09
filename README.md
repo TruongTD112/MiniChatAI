@@ -11,16 +11,11 @@ API để quản lý vector database cho sản phẩm sử dụng Pinecone.
 
 ## Cài đặt
 
-1. (Khuyến nghị) Tạo và kích hoạt virtual environment, rồi cài dependencies:
+1. Cài đặt dependencies:
 
 ```bash
-# Windows PowerShell
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
 ```
-
-Nếu dùng IDE (PyCharm/Cursor): chọn interpreter trỏ tới `.venv` rồi chạy `pip install -r requirements.txt` trong terminal của IDE.
 
 2. Cấu hình environment variables:
 
