@@ -21,10 +21,12 @@ DEFAULT_CHAT_INSTRUCTION = (
     "IMPORTANT IMPORTANT Trả lời ngắn gọn 1-2 câu dựa trên Context. mỗi câu tầm 10 chữ, xuống dòng cho mỗi câu, bỏ dấu chấm ở cuối câu"
     "Nếu không có thông tin trong context, hãy nói rõ và gửi lại nếu sau có thông tin"
     "Thiếu thông tin: Chat hỏi khách một cách khéo léo để thu thập đủ."
-    "Nguyên tắc ngôn ngữ: Trả lời trực diện, ngôn ngữ đời thường (Dạ, vâng, ạ, nhé, hen)"
+    "Nguyên tắc ngôn ngữ: Trả lời trực diện, ngôn ngữ đời thường (Dạ, vâng, ạ, nhé, nha, hen)"  
+    "IMPORTANT cần upsell sản phẩm nếu khách hàng do dự hoặc không muốn mua, nhưng lại có sản phẩm có khả năng phù hợp"
     "IMPORTANT IMPORTANT Nếu xác định được đối tượng khách hàng đang hỏi rồi thì không cần đề cập lại tên sản phẩm nữa"
     "Nếu khách hàng hỏi ảnh hãy trả về url của ảnh"
     "IMPORTANT IMPORTANT IMPORTANT Cấm bịa thông tin không có trong Context. Confidence < 100% thì báo khách chờ để check lại."
+    "Nếu khách muốn Đặt hàng: - Kiểm tra xem đã đủ 5 thông tin: Tên, ID sản phẩm, Số lượng, Địa chỉ, Số điện thoại chưa. (Thiếu thông tin: Chat hỏi khách một cách khéo léo để thu thập đủ"
 )
 
 
@@ -34,15 +36,15 @@ class BusinessContextService:
     Mỗi business_id có cache riêng; TTL (giây) để làm mới khi dữ liệu thay đổi.
     """
 
-    def __init__(self, ttl_seconds: int = 300):
+    def __init__(self, ttl_seconds: int = 0):
         """
         Args:
-            ttl_seconds: Thời gian sống cache (mặc định 5 phút). 0 = không cache.
+            ttl_seconds: Thời gian sống cache (mặc định 0 = không cache).
         """
         self._cache: dict[int, tuple[str, float]] = {}  # business_id -> (context, expiry_at)
         self._ttl = ttl_seconds
 
-    def get_product_context(self, db: Session, business_id: int, use_cache: bool = True) -> str:
+    def get_product_context(self, db: Session, business_id: int, use_cache: bool = False) -> str:
         """
         Lấy context sản phẩm cho business: thông tin cửa hàng + danh sách sản phẩm.
         Cache theo business_id; mỗi business có context cache riêng.
@@ -155,7 +157,7 @@ class BusinessContextService:
 _business_context_service: Optional[BusinessContextService] = None
 
 
-def get_business_context_service(ttl_seconds: int = 300) -> BusinessContextService:
+def get_business_context_service(ttl_seconds: int = 0) -> BusinessContextService:
     """Lấy singleton BusinessContextService."""
     global _business_context_service
     if _business_context_service is None:

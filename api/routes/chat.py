@@ -39,7 +39,7 @@ async def chat_message(
 
         # Lấy context sản phẩm từ Business + Product, cache theo business_id
         context_service = get_business_context_service()
-        product_context = context_service.get_product_context(db, business_id, use_cache=True)
+        product_context = context_service.get_product_context(db, business_id, use_cache=False)
 
         # Chuyển conversations sang format cho GeminiService
         conversations = [
